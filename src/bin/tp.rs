@@ -8,6 +8,7 @@ fn main() {
             println!("Hello World");
         });
     }
+    drop(tp);
     // tp.shutdown();
     // loop{}
 }

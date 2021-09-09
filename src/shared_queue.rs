@@ -12,11 +12,12 @@ pub enum ThreadPoolMessage {
 pub struct SharedQueueThreadPool {
     receiver: Arc<Mutex<Receiver<ThreadPoolMessage>>>,
     sender: Arc<Sender<ThreadPoolMessage>>,
-    pool: Vec<thread::JoinHandle<()>>,
+    pool: Vec<Option<thread::JoinHandle<()>>>,
     capacity: u32
 }
 
 impl SharedQueueThreadPool {
+    /// 生成线程池
     pub fn new(threads: u32) -> Result<SharedQueueThreadPool, ()> {
         let (sender, receiver) = channel::<ThreadPoolMessage>();
         let receiver = Arc::new(Mutex::new(receiver));
@@ -28,16 +29,18 @@ impl SharedQueueThreadPool {
         })
     }
 
+    /// 开始运行线程池
     pub fn run(&mut self) {
-        for _ in 0..self.capacity {
+        for id in 0..self.capacity {
             let receiver = self.receiver.clone();
             let join_handle = thread::spawn(move || {
-                run_task(receiver);
+                run_task(id, receiver);
             });
-            self.pool.push(join_handle);
+            self.pool.push(Some(join_handle));
         }
     }
 
+    /// 向线程池中传递执行方法
     pub fn spawn<F>(&self, job: F)
     where F: FnOnce() + Send + 'static {
         let task = ThreadPoolMessage::Task(Box::new(job));
@@ -45,17 +48,24 @@ impl SharedQueueThreadPool {
         self.sender.send(task).unwrap();
     }
 
-    pub fn shutdown(&self) {
+    /// 销毁线程池
+    pub fn shutdown(&mut self) {
         println!("[Debug] 关闭线程池");
         for _ in 0..self.capacity {
             self.sender.send(ThreadPoolMessage::Shutdown).unwrap();
+        }
+
+        for thread in &mut self.pool {
+            if let Some(thread) = thread.take() {
+                thread.join().unwrap();
+            }
         }
     }
 
 }
 
 /// 执行任务方法
-pub fn run_task(receiver: Arc<Mutex<Receiver<ThreadPoolMessage>>>) {
+pub fn run_task(id: u32, receiver: Arc<Mutex<Receiver<ThreadPoolMessage>>>) {
     println!("[Debug] 开始运行任务");
     loop {
         let recv = receiver.lock().unwrap();
@@ -68,5 +78,12 @@ pub fn run_task(receiver: Arc<Mutex<Receiver<ThreadPoolMessage>>>) {
                 break;
             }
         }
+    }
+    println!("[Debug] Thread {} exit", id);
+}
+
+impl Drop for SharedQueueThreadPool {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
