@@ -1,3 +1,3 @@
-mod threadpool;
+mod shared_queue;
 
-pub use threadpool::*;
+pub use shared_queue::*;
